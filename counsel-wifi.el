@@ -76,8 +76,8 @@
     (shell-command (concat "nmcli con show id '" name "'") buffer-name buffer-name)
     (with-current-buffer buffer-name
       (set (make-local-variable 'wifi-name) name)
-      (local-set-key (kbd "C-c C-c") #'counsel-wifi-connect)
-      (local-set-key (kbd "C-c C-k") #'counsel-wifi-disconnect)
+      (local-set-key (kbd "C-c C-c") counsel-wifi-connect)
+      (local-set-key (kbd "C-c C-k") counsel-wifi-disconnect)
       (read-only-mode)
       (goto-char (point-min)))
     (switch-to-buffer-other-window buffer-name)))
