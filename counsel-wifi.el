@@ -25,41 +25,75 @@
 (require 'ivy)
 
 ;;** `counsel-wifi'
-(defface counsel-wifi-connected
-  '((t :inherit ivy-highlight-face))
+(ivy-set-actions 'counsel-wifi `(("c" counsel-wifi--connect "connect")
+                                 ("d" counsel-wifi--disconnect "disconnect")))
+
+(defface counsel-wifi-connected '((t :inherit ivy-highlight-face))
   "Face used by `counsel-wifi' for connected WiFi."
   :group 'ivy-faces)
 
-(defface counsel-wifi-header
-  '((t :inherit font-lock-comment-face))
-  "Face used by `counsel-wifi' for header."
-  :group 'ivy-faces)
-
-(defun counsel-wifi-action (x)
-  "Action on candidate X."
+(defun counsel-wifi--connect (x)
+  "Connect candidate X."
   (let* ((face (get-text-property 0 'face x))
-         (connected (and face (face-equal 'counsel-wifi-connected face)))
-         (header (and face (face-equal 'counsel-wifi-header face)))
-         (name (first (split-string x " " t))))
-    (unless (or connected header)
-      (call-process-shell-command (concat "nmcli con up id '" name "' &") nil 0))))
+         (connected (and face
+                         (face-equal 'counsel-wifi-connected face)))
+         (name (second (split-string x "\t" t))))
+    (unless connected (call-process-shell-command (concat "nmcli con up id '" name "' &") nil 0))))
+
+(defun counsel-wifi--disconnect (x)
+  "Disconnect candidate X."
+  (let* ((face (get-text-property 0 'face x))
+         (connected (and face
+                         (face-equal 'counsel-wifi-connected face)))
+         (name (second (split-string x "\t" t))))
+    (when connected (call-process-shell-command (concat "nmcli con down id '" name "' &") nil 0))))
+
+(defvar counsel-wifi-connect
+  #'(lambda ()
+      "Connect wifi in wifi detail buffer."
+      (interactive)
+      (let ((name (buffer-local-value 'wifi-name (current-buffer))))
+        (message "Connect WiFi %s" name)
+        (call-process-shell-command (concat "nmcli con up id '" name "' &") nil 0)
+        (kill-buffer (current-buffer)))))
+
+(defvar counsel-wifi-disconnect
+  #'(lambda ()
+      "Disconnect wifi in wifi detail buffer."
+      (interactive)
+      (let ((name (buffer-local-value 'wifi-name (current-buffer))))
+        (message "Disconnect WiFi %s" name)
+        (call-process-shell-command (concat "nmcli con down id '" name "' &") nil 0)
+        (kill-buffer (current-buffer)))))
+
+(defun counsel-wifi--show (x)
+  "Show candidate X."
+  (let* ((face (get-text-property 0 'face x))
+         (connected (and face
+                         (face-equal 'counsel-wifi-connected face)))
+         (name (second (split-string x "\t" t)))
+         (buffer-name (format "*WiFi-%s*" name)))
+    (shell-command (concat "nmcli con show id '" name "'") buffer-name buffer-name)
+    (with-current-buffer buffer-name
+      (set (make-local-variable 'wifi-name) name)
+      (local-set-key (kbd "C-c C-c") #'counsel-wifi-connect)
+      (local-set-key (kbd "C-c C-k") #'counsel-wifi-disconnect)
+      (read-only-mode)
+      (goto-char (point-min)))
+    (switch-to-buffer-other-window buffer-name)))
 
 (defun counsel--wifi-candidates ()
   "Return list of `counsel-wifi' candidates."
-  (let* ((lines (split-string (shell-command-to-string "nmcli d wifi") "\n"))
-         (header)
+  (let* ((lines (split-string (shell-command-to-string
+                               "nmcli -g SSID,IN-USE,BARS d wifi | sed -E -e 's/ :/#:/g' | sed -e 's/:/\t/g' | sort -r | awk -F'\t' '{print $2\"\t\"$3\"\t\"$1}' | uniq -f 2 | sed -E -e 's/^#/ /g' | LC_ALL=C sort -r") "\n"))
          (connected)
          (candidates (mapcar (lambda (line)
                                (cond ((string-prefix-p "*" line)
-                                      (setq connected (propertize (string-trim (substring line 1)) 'face 'counsel-wifi-connected))
+                                      (setq connected (propertize (string-trim (substring line 1))
+                                                                  'face 'counsel-wifi-connected))
                                       nil)
-                                     ((string-prefix-p "IN-USE" line)
-                                      (setq header (propertize (string-trim (substring line 6)) 'face 'counsel-wifi-header))
-                                      nil)
-                                     (t (string-trim line))))
-                             lines)))
+                                     (t (string-trim line)))) lines)))
     (push connected candidates)
-    (push header candidates)
     (remove nil candidates)))
 
 ;;;###autoload
@@ -68,7 +102,7 @@
   (interactive)
   (ivy-read "wifi: " (counsel--wifi-candidates)
             :history 'counsel-wifi-history
-            :action #'counsel-wifi-action
+            :action #'counsel-wifi--show
             :caller 'counsel-wifi
             :require-match t))
 
