@@ -26,7 +26,8 @@
 
 ;;** `counsel-wifi'
 (ivy-set-actions 'counsel-wifi `(("c" counsel-wifi--connect "connect")
-                                 ("d" counsel-wifi--disconnect "disconnect")))
+                                 ("d" counsel-wifi--disconnect "disconnect")
+                                 ("t" counsel-wifi--toggle "toggle")))
 
 (defface counsel-wifi-connected '((t :inherit ivy-highlight-face))
   "Face used by `counsel-wifi' for connected WiFi."
@@ -47,6 +48,15 @@
                          (face-equal 'counsel-wifi-connected face)))
          (name (second (split-string x "\t" t))))
     (when connected (call-process-shell-command (concat "nmcli con down id '" name "' &") nil 0))))
+
+(defun counsel-wifi--toggle (x)
+  "Toggle WiFi device."
+  (call-process-shell-command 
+   (format 
+    "nmcli radio wifi %s" 
+    (if (string-equal "disabled" (string-trim (shell-command-to-string "nmcli radio wifi")))
+        "on"
+      "off")) nil 0))
 
 (defvar counsel-wifi-connect
   #'(lambda ()
