@@ -27,7 +27,10 @@
 ;;** `counsel-wifi'
 (ivy-set-actions 'counsel-wifi `(("c" counsel-wifi--connect "connect")
                                  ("d" counsel-wifi--disconnect "disconnect")
-                                 ("t" counsel-wifi--toggle "toggle")))
+                                 ("E" counsel-wifi--enable "enable")
+                                 ("D" counsel-wifi--disable "disable")
+                                 ("W" counsel-wifi--connect-wired "connect wired")
+                                 ("Q" counsel-wifi--disconnect-wired "disconnect wired")))
 
 (defface counsel-wifi-connected '((t :inherit ivy-highlight-face))
   "Face used by `counsel-wifi' for connected WiFi."
@@ -49,14 +52,30 @@
          (name (second (split-string x "\t" t))))
     (when connected (call-process-shell-command (concat "nmcli con down id '" name "' &") nil 0))))
 
-(defun counsel-wifi--toggle (x)
-  "Toggle WiFi device."
-  (call-process-shell-command 
-   (format 
-    "nmcli radio wifi %s" 
-    (if (string-equal "disabled" (string-trim (shell-command-to-string "nmcli radio wifi")))
-        "on"
-      "off")) nil 0))
+(defun counsel-wifi--enable (x)
+  "Enable WiFi device."
+  (call-process-shell-command "nmcli radio wifi on" nil 0))
+
+(defun counsel-wifi--disable (x)
+  "Disable WiFi device."
+  (call-process-shell-command "nmcli radio wifi off" nil 0))
+
+(defun counsel-wifi--wired-uuid ()
+  (string-trim (shell-command-to-string "nmcli -f UUID,TYPE con  | awk '$2==\"ethernet\" {print $1}'")))
+
+(defun counsel-wifi--status ()
+  (string-trim (shell-command-to-string "nmcli radio | tail -1 | awk '{if ($2==\"enabled\") print \"ON\"; else print \"OFF\"; }'")))
+
+(defun counsel-wifi--wired-status ()
+  (shell-command-to-string "nmcli -f TYPE,DEVICE con | grep -E '^ethernet' | grep -vE '\\-\\- *$' >/dev/null && echo -n ON || echo -n OFF"))
+
+(defun counsel-wifi--connect-wired (x)
+  "Connect wired."
+  (call-process-shell-command (concat "nmcli con up uuid '" (counsel-wifi--wired-uuid) "' &") nil 0))
+
+(defun counsel-wifi--disconnect-wired (x)
+  "Disconnect wired."
+  (call-process-shell-command (concat "nmcli con down uuid '" (counsel-wifi--wired-uuid) "' &") nil 0))
 
 (defvar counsel-wifi-connect
   #'(lambda ()
@@ -94,15 +113,17 @@
 
 (defun counsel--wifi-candidates ()
   "Return list of `counsel-wifi' candidates."
-  (let* ((lines (split-string (shell-command-to-string
-                               "nmcli -g SSID,IN-USE,BARS d wifi | sed -E -e 's/ :/#:/g' | sed -e 's/:/\t/g' | sort -r | awk -F'\t' '{print $2\"\t\"$3\"\t\"$1}' | uniq -f 2 | sed -E -e 's/^#/ /g' | LC_ALL=C sort -r") "\n"))
+  (let* ((lines (split-string
+                 (string-trim
+                  (shell-command-to-string
+                   "nmcli -g SSID,IN-USE,BARS d wifi | sed -E -e 's/ :/#:/g' | sed -e 's/:/\t/g' | sort -r | awk -F'\t' '{print $2\"\t\"$3\"\t\"$1}' | uniq -f 2 | sed -E -e 's/^#/ /g' | LC_ALL=C sort -r")) "\n"))
          (connected)
          (candidates (mapcar (lambda (line)
                                (cond ((string-prefix-p "*" line)
-                                      (setq connected (propertize (string-trim (substring line 1))
+                                      (setq connected (propertize (concat "✔  " (string-trim (substring line 1)))
                                                                   'face 'counsel-wifi-connected))
                                       nil)
-                                     (t (string-trim line)))) lines)))
+                                     (t (concat "   " (string-trim line))))) lines)))
     (push connected candidates)
     (remove nil candidates)))
 
@@ -110,7 +131,12 @@
 (defun counsel-wifi ()
   "Connect WiFi with Ivy."
   (interactive)
-  (ivy-read "wifi: " (counsel--wifi-candidates)
+  (ivy-read (concat "Wired is "
+                    (counsel-wifi--wired-status)
+                    " Wireless is "
+                    (counsel-wifi--status)
+                    ", WiFi: ")
+            (counsel--wifi-candidates)
             :history 'counsel-wifi-history
             :action #'counsel-wifi--show
             :caller 'counsel-wifi
